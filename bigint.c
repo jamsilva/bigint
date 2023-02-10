@@ -129,10 +129,10 @@ bigint* bigint_init(bigint *dst){
 
 bigint* bigint_reserve(bigint *dst, int capacity){
     if (dst->capacity >= capacity) return dst;
+    bigint_word *words = (bigint_word*)realloc(dst->words, capacity * sizeof(*dst->words));
+    if (!words) return NULL;
+    dst->words = words;
     dst->capacity = capacity;
-    dst->words = (bigint_word*)realloc(dst->words, capacity * sizeof(*dst->words));
-    /* out of memory? sorry :( */
-    assert(dst->words != NULL);
     BIGINT_ASSERT(dst->size, <=, capacity);
     return dst;
 }
@@ -194,12 +194,16 @@ void bigint_raw_zero(bigint_word *dst, int from, int to){
 }
 
 bigint* bigint_set_neg(bigint *dst, int neg){
-    dst->neg = neg;
+    dst->neg = !!neg;
     return dst;
 }
 
 bigint* bigint_negate(bigint *dst){
     return bigint_set_neg(dst, !dst->neg);
+}
+
+bigint* bigint_abs(bigint* dst) {
+    return bigint_set_neg(dst, 0);
 }
 
 int bigint_raw_cpy(bigint_word *dst, const bigint_word *src, int n){
@@ -209,7 +213,7 @@ int bigint_raw_cpy(bigint_word *dst, const bigint_word *src, int n){
 
 bigint* bigint_cpy(bigint *dst, const bigint *src){
     if (src == dst) return dst;
-    bigint_reserve(dst, src->size);
+    if (!bigint_reserve(dst, src->size)) return NULL;
     dst->size = bigint_raw_cpy(dst->words, src->words, src->size);
     BIGINT_ASSERT(bigint_cmp_abs(src, dst), ==, 0);
     return bigint_set_neg(dst, src->neg);
@@ -236,7 +240,7 @@ bigint* bigint_set_bit(bigint *dst, unsigned bit_index){
     int word_index = bit_index / BIGINT_WORD_BITS;
     int n = word_index + 1;
 
-    bigint_reserve(dst, n);
+    if (!bigint_reserve(dst, n)) return NULL;
     bigint_raw_zero(dst->words, dst->size, n);
     dst->size = BIGINT_MAX(dst->size, n);
     dst->words[word_index] |= ((bigint_word)1) << bit_index % BIGINT_WORD_BITS;
@@ -476,7 +480,7 @@ bigint* bigint_mul(bigint *dst, const bigint *a, const bigint *b){
     int n = na + nb;
     bigint_word *tmp;
 
-    bigint_reserve(dst, n);
+    if (!bigint_reserve(dst, n)) return NULL;
 
     /* bigint_raw_mul_karatsuba already has this fastpath */
     /* but this way we avoid allocating tmp */
@@ -490,8 +494,8 @@ bigint* bigint_mul(bigint *dst, const bigint *a, const bigint *b){
         dst->size = bigint_raw_mul_add(dst->words, a->words, na, b->words, nb);
     }else{
         int magical_upper_bound = BIGINT_MAX(na, nb) * 11 + 180 + n;
-        tmp = (bigint_word*)malloc(magical_upper_bound * sizeof(*tmp));
-
+        tmp = (bigint_word*) malloc(magical_upper_bound * sizeof(*tmp));
+        if (!tmp) return NULL;
         dst->size = bigint_raw_mul_karatsuba(tmp, a->words, na, b->words, nb, tmp + n);
         bigint_raw_cpy(dst->words, tmp, dst->size);
         free(tmp);
@@ -518,7 +522,7 @@ bigint* bigint_from_str_base(bigint *dst, const char *src, int src_base){
     n_digits_src = bigint_count_digits(src);
     n_digits_dst = bigint_digits_bound(n_digits_src, src_base, dst_base);
 
-    bigint_reserve(dst, n_digits_dst);
+    if (!bigint_reserve(dst, n_digits_dst)) return NULL;
     dst->size = n_digits_dst;
     bigint_raw_zero(dst->words, 0, n_digits_dst);
 
@@ -533,7 +537,7 @@ bigint* bigint_from_str(bigint *dst, const char *src){
 bigint* bigint_from_int(bigint *dst, int src){
     unsigned int x = BIGINT_INT_ABS(src);
     int n = BIGINT_MAX(1, sizeof(x)/sizeof(bigint_word));
-    bigint_reserve(dst, n);
+    if (!bigint_reserve(dst, n)) return NULL;
     bigint_raw_zero(dst->words, 0, n);
     memcpy(dst->words, &x, sizeof(x));
     dst->size = bigint_raw_truncate(dst->words, n);
@@ -541,7 +545,7 @@ bigint* bigint_from_int(bigint *dst, int src){
 }
 
 bigint* bigint_from_word(bigint *dst, bigint_word a){
-    bigint_reserve(dst, 1);
+    if (!bigint_reserve(dst, 1)) return NULL;
     dst->words[0] = a;
     dst->size = bigint_raw_truncate(dst->words, 1);
     return bigint_set_neg(dst, 0);
@@ -600,7 +604,7 @@ bigint* bigint_add_signed(
     int nb = b->size;
     int n = BIGINT_MAX(na, nb) + 1;
 
-    bigint_reserve(dst, n);
+    if (!bigint_reserve(dst, n)) return NULL;
 
     dst->size = bigint_raw_add_signed(
         dst->words, &dst->neg,
@@ -626,7 +630,7 @@ bigint* bigint_add_word_signed(
 ){
     int na = src_a->size;
 
-    bigint_reserve(dst, na + 1);
+    if (!bigint_reserve(dst, na + 1)) return NULL;
 
     dst->size = bigint_raw_add_signed(
         dst->words, &dst->neg,
@@ -735,13 +739,13 @@ int bigint_raw_shift_right(
 
 bigint* bigint_shift_left(bigint *dst, const bigint *src, unsigned shift){
     unsigned n = src->size + shift / BIGINT_WORD_BITS + (shift % BIGINT_WORD_BITS != 0);
-    bigint_reserve(dst, n);
+    if (!bigint_reserve(dst, n)) return NULL;
     dst->size = bigint_raw_shift_left(dst->words, dst->capacity, src->words, src->size, shift);
     return bigint_set_neg(dst, src->neg);
 }
 
 bigint* bigint_shift_right(bigint *dst, const bigint *src, unsigned shift){
-    bigint_reserve(dst, src->size);
+    if (!bigint_reserve(dst, src->size)) return NULL;
     dst->size = bigint_raw_shift_right(dst->words, dst->capacity, src->words, src->size, shift);
     return bigint_set_neg(dst, src->neg);
 }
@@ -774,7 +778,7 @@ bigint* bigint_div_mod(
     int shift;
     int src_numerator_neg = src_numerator->neg;
     int src_denominator_neg = src_denominator->neg;
-    bigint denominator[1], *remainder = dst_remainder, *quotient = dst_quotient;
+    bigint denominator[1];
 
     if (src_denominator->size == 0) return NULL;
 
@@ -783,10 +787,10 @@ bigint* bigint_div_mod(
         /* make sure this is not overwritten */
         bigint_word a = src_numerator->words[0];
         bigint_word b = src_denominator->words[0];
-        bigint_from_word(quotient, a / b);
-        bigint_from_word(remainder, a % b);
-        quotient->neg = src_numerator_neg ^ src_denominator_neg;
-        remainder->neg = src_numerator_neg;
+        if (!bigint_from_word(dst_quotient, a / b)) goto err;
+        if (!bigint_from_word(dst_remainder, a % b) goto err;
+        dst_quotient->neg = src_numerator_neg ^ src_denominator_neg;
+        dst_remainder->neg = src_numerator_neg;
         return dst_quotient;
     }
 
@@ -795,37 +799,41 @@ bigint* bigint_div_mod(
         src_denominator->words[0] <= BIGINT_HALF_WORD_MAX
     ){
         bigint_word rem;
-        bigint_cpy(quotient, src_numerator);
-        bigint_div_mod_half_word(quotient, &rem, src_denominator->words[0]);
-        bigint_from_word(remainder, rem);
-        quotient->neg = src_numerator_neg ^ src_denominator_neg;
-        remainder->neg = src_numerator_neg;
+        if (!bigint_cpy(dst_quotient, src_numerator)) goto err;
+        bigint_div_mod_half_word(dst_quotient, &rem, src_denominator->words[0]);
+        if (!bigint_from_word(dst_remainder, rem)) goto err;
+        dst_quotient->neg = src_numerator_neg ^ src_denominator_neg;
+        dst_remainder->neg = src_numerator_neg;
         return dst_quotient;
     }
 
-    bigint_cpy(remainder, src_numerator);
-    remainder->neg = 0;
-    quotient->size = 0;
+    if (!bigint_cpy(dst_remainder, src_numerator)) goto err;
+    dst_remainder->neg = 0;
+    dst_quotient->size = 0;
+    if (!bigint_init(denominator)) goto err;
 
-    if (bigint_cmp_abs(remainder, src_denominator) >= 0){
-        shift = bigint_bitlength(remainder) - bigint_bitlength(src_denominator);
+    if (bigint_cmp_abs(dst_remainder, src_denominator) >= 0){
+        shift = bigint_bitlength(dst_remainder) - bigint_bitlength(src_denominator);
 
-        bigint_init(denominator);
         bigint_shift_left(denominator, src_denominator, shift);
         denominator->neg = 0;
 
         /* divide bit by bit */
         for (; shift >= 0; shift--) {
-            if (bigint_cmp_abs(remainder, denominator) >= 0) {
-                bigint_sub(remainder, remainder, denominator);
+            if (bigint_cmp_abs(dst_remainder, denominator) >= 0) {
+                if (!bigint_sub(dst_remainder, dst_remainder, denominator)) goto err;
                 bigint_set_bit(quotient, shift);
             }
             bigint_shift_right(denominator, denominator, 1);
         }
-
-        bigint_free(denominator);
     }
 
+    goto ok;
+
+err:
+    dst_quotient = NULL;
+ok:
+    bigint_free(denominator);
     quotient->neg = src_numerator_neg ^ src_denominator_neg;
     remainder->neg = src_numerator_neg;
     return dst_quotient;
@@ -839,7 +847,7 @@ bigint* bigint_div(
     bigint unused[1];
     bigint_init(unused);
 
-    bigint_div_mod(dst, unused, numerator, denominator);
+    dst = bigint_div_mod(dst, unused, numerator, denominator);
 
     bigint_free(unused);
     return dst;
@@ -853,7 +861,7 @@ bigint* bigint_mod(
     bigint unused[1];
     bigint_init(unused);
 
-    bigint_div_mod(unused, dst, numerator, denominator);
+    if (!bigint_div_mod(unused, dst, numerator, denominator)) dst = NULL;
 
     bigint_free(unused);
     return dst;
@@ -954,7 +962,7 @@ bigint* bigint_sqrt(bigint *dst, const bigint *src){
     bigint_init(sum);
     bigint_init(tmp);
 
-    bigint_cpy(tmp, src);
+    if (!bigint_cpy(tmp, src)) goto err;
     tmp->neg = 0;
 
     /* index of highest 1 bit rounded down */
@@ -962,17 +970,22 @@ bigint* bigint_sqrt(bigint *dst, const bigint *src){
     if (bit & 1) bit ^= 1;
 
     for (; bit >= 0; bit -= 2){
-        bigint_cpy(sum, dst);
+        if (!bigint_cpy(sum, dst)) goto err;
         bigint_set_bit(sum, bit);
 
         if (bigint_cmp_abs(tmp, sum) >= 0){
-            bigint_sub(tmp, tmp, sum);
+            if (!bigint_sub(tmp, tmp, sum)) goto err;
             bigint_set_bit(dst, bit + 1);
         }
 
         bigint_shift_right(dst, dst, 1);
     }
 
+    goto ok;
+
+err:
+    dst = NULL;
+ok:
     bigint_free(tmp);
     bigint_free(sum);
     return dst;
@@ -997,7 +1010,7 @@ char* bigint_write_base(
     }else{
         bigint tmp[1];
         bigint_init(tmp);
-        bigint_cpy(tmp, a);
+        if (!bigint_cpy(tmp, a)) return NULL;
 
         while (tmp->size > 0){
             bigint_word remainder;
@@ -1025,7 +1038,7 @@ bigint* bigint_rand_bits(bigint *dst, int n_bits, bigint_rand_func rand_func){
     int n_word_bits = n_bits % BIGINT_WORD_BITS;
     int n_words = n_bits / BIGINT_WORD_BITS + (n_word_bits != 0);
 
-    bigint_reserve(dst, n_words);
+    if (!bigint_reserve(dst, n_words)) return NULL;
 
     rand_func((uint8_t*)dst->words, sizeof(*dst->words) * n_words);
 
@@ -1079,20 +1092,25 @@ bigint* bigint_pow_mod(
     bigint_init(unused);
     bigint_init(modulus);
 
-    bigint_cpy(exponent, src_exponent);
-    bigint_cpy(modulus, src_modulus);
-    bigint_div_mod(unused, base, src_base, modulus);
-    bigint_from_word(dst, 1);
+    if (!bigint_cpy(exponent, src_exponent)) goto err;
+    if (!bigint_cpy(modulus, src_modulus)) goto err;
+    if (!bigint_div_mod(unused, base, src_base, modulus)) goto err;
+    if (!bigint_from_word(dst, 1)) goto err;
 
     for (; exponent->size; bigint_shift_right(exponent, exponent, 1)){
         if (bigint_get_bit(exponent, 0)){
-            bigint_mul(tmp, dst, base);
-            bigint_div_mod(unused, dst, tmp, modulus);
+            if (!bigint_mul(tmp, dst, base)) goto err;
+            if (!bigint_div_mod(unused, dst, tmp, modulus)) goto err;
         }
-        bigint_mul(tmp, base, base);
-        bigint_div_mod(unused, base, tmp, modulus);
+        if (!bigint_mul(tmp, base, base)) goto err;
+        if (!bigint_div_mod(unused, base, tmp, modulus)) goto err;
     }
 
+    goto ok;
+
+err:
+    dst = NULL;
+ok:
     bigint_free(base);
     bigint_free(exponent);
     bigint_free(tmp);
@@ -1107,7 +1125,7 @@ int bigint_is_probable_prime(
     bigint_rand_func rand_func
 ){
     bigint a[1], d[1], x[1], two[1], n_minus_one[1], n_minus_three[1];
-    int i, shift;
+    int i, shift, ret = -1;
 
     /* divisible by 2, not prime */
     if (bigint_get_bit(n, 0) == 0) return 0;
@@ -1122,7 +1140,7 @@ int bigint_is_probable_prime(
     bigint_init(n_minus_one);
     bigint_init(n_minus_three);
 
-    bigint_from_word(two, 2);
+    if (!bigint_from_word(two, 2)) goto end;
 
     bigint_sub_word(n_minus_one, n, 1);
     bigint_sub_word(n_minus_three, n, 3);
@@ -1133,27 +1151,33 @@ int bigint_is_probable_prime(
     do {
         bigint_rand_inclusive(a, n_minus_three, rand_func);
         bigint_add_word(a, a, 2);
-        bigint_pow_mod(x, a, d, n);
+        if (!bigint_pow_mod(x, a, d, n)) goto end;
 
         if (bigint_cmp_abs_word(x, 1) == 0) continue;
         if (bigint_cmp(x, n_minus_one) == 0) continue;
 
         for (i = 1; i < shift; i++){
-            bigint_pow_mod(x, x, two, n);
-            if (bigint_cmp_abs_word(x, 1) == 0) return 0;
+            if (!bigint_pow_mod(x, x, two, n)) goto end;
+            if (bigint_cmp_abs_word(x, 1) == 0) goto zero;
             if (bigint_cmp(x, n_minus_one) == 0) break;
         }
 
-        if (i == shift) return 0;
+        if (i == shift) goto zero;
     } while (--n_tests);
 
+    ret = 1;
+    goto end;
+
+zero:
+    ret = 0;
+end:
     bigint_free(a);
     bigint_free(d);
     bigint_free(x);
     bigint_free(two);
     bigint_free(n_minus_one);
     bigint_free(n_minus_three);
-    return 1;
+    return ret;
 }
 
 bigint* bigint_pow_word(bigint *dst, const bigint *base, bigint_word exponent){
@@ -1162,8 +1186,8 @@ bigint* bigint_pow_word(bigint *dst, const bigint *base, bigint_word exponent){
     bigint_init(p);
     bigint_init(result);
 
-    bigint_cpy(p, base);
-    bigint_from_word(result, 1);
+    if (!bigint_cpy(p, base)) goto err;
+    if (!bigint_from_word(result, 1)) goto err;
 
     for (; exponent; exponent >>= 1){
         if (exponent & 1){
@@ -1173,7 +1197,13 @@ bigint* bigint_pow_word(bigint *dst, const bigint *base, bigint_word exponent){
         bigint_mul(p, p, p);
     }
 
-    bigint_cpy(dst, result);
+    if (!bigint_cpy(dst, result)) goto err;
+
+    goto ok;
+
+err:
+    dst = NULL;
+ok:
     bigint_free(p);
     bigint_free(result);
     return dst;
@@ -1203,7 +1233,7 @@ double bigint_double(const bigint *src){
     if (src->size == 0) return 0.0;
 
     bigint_raw_get_high_bits(tmp, 20, src->words, src->size, n_mant_bits, &n);
-    /* this bit is stored implicitely */
+    /* this bit is stored implicitly */
     bigint_raw_clr_bit(tmp, n_mant_bits);
     exponent--;
     exponent += n;

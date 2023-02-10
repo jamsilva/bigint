@@ -63,6 +63,7 @@ int bigint_cmp_abs_word(const bigint *a, bigint_word b);
 
 bigint* bigint_set_neg(bigint *dst, int neg);
 bigint* bigint_negate(bigint *dst);
+bigint* bigint_abs(bigint* dst);
 
 bigint* bigint_cpy(bigint *dst, const bigint *src);
 
