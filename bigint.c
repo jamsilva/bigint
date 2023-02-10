@@ -1119,6 +1119,53 @@ ok:
     return dst;
 }
 
+void bigint_reorder_longer_shorter(const bigint **a, const bigint **b){
+    const bigint *tmp;
+    if ((*a)->size >= (*b)->size) return;
+    tmp = *a;
+    *a = *b;
+    *b = tmp;
+}
+
+bigint* bigint_and(bigint *r, const bigint *a, const bigint *b){
+    int i;
+    bigint_reorder_longer_shorter(&a, &b);
+    if (!bigint_cpy(r, b)) return NULL;
+    r->neg &= a->neg;
+
+    for (i = b->size - 1; i >= 0; i--){
+        r->words[i] &= a->words[i];
+    }
+
+    return r;
+}
+
+bigint* bigint_or(bigint *r, const bigint *a, const bigint *b){
+    int i;
+    bigint_reorder_longer_shorter(&a, &b);
+    if (!bigint_cpy(r, a)) return NULL;
+    r->neg |= a->neg;
+
+    for (i = b->size - 1; i >= 0; i--){
+        r->words[i] |= b->words[i];
+    }
+
+    return r;
+}
+
+bigint* bigint_xor(bigint *r, const bigint *a, const bigint *b){
+    int i;
+    bigint_reorder_longer_shorter(&a, &b);
+    if (!bigint_cpy(r, a)) return NULL;
+    r->neg ^= a->neg;
+
+    for (i = b->size - 1; i >= 0; i--){
+        r->words[i] ^= b->words[i];
+    }
+
+    return r;
+}
+
 int bigint_is_probable_prime(
     const bigint *n,
     int n_tests,

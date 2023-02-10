@@ -144,6 +144,12 @@ bigint* bigint_pow_mod(
     const bigint *src_modulus
 );
 
+void bigint_reorder_longer_shorter(const bigint **a, const bigint **b);
+
+bigint* bigint_and(bigint *r, const bigint *a, const bigint *b);
+bigint* bigint_or(bigint *r, const bigint *a, const bigint *b);
+bigint* bigint_xor(bigint *r, const bigint *a, const bigint *b);
+
 /* probability for wrong positives is approximately 1/4^n_tests */
 int bigint_is_probable_prime(const bigint *n, int n_tests, bigint_rand_func rand_func);
 
